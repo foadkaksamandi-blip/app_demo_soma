@@ -18,31 +18,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      # اگر پروژه Gradle Wrapper داشته باشد، این قدم به صورت خودکار آن را اجرا می‌کند.
-      # در این مرحله فقط فایل‌های اکشن را آماده می‌کنیم؛
-      # تا وقتی فایل‌های gradle پروژه (settings.gradle.kts, build.gradle.kts و ماژول‌ها) را اضافه نکنی، این Job به خطا می‌خورد (طبیعی است).
-      - name: Grant execute permission for Gradle Wrapper (if present)
-        run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x gradlew
-          fi
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Build Merchant & Consumer APKs (Debug)
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Install Build Tools & Platforms
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew :merchant-app:assembleDebug :consumer-app:assembleDebug
-          else
-            echo "Gradle wrapper not found yet. Add Gradle build files next." && exit 1
-          fi
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Gradle Build (no wrapper)
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: 8.7
+          arguments: |
+            :merchant-app:assembleDebug
+            :consumer-app:assembleDebug
 
       - name: Upload APK Artifacts
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: soma-apks
           path: |
             merchant-app/build/outputs/apk/debug/*.apk
             consumer-app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
