@@ -1,0 +1,48 @@
+name: Build APKs (SOMA Offline Demo)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # اگر پروژه Gradle Wrapper داشته باشد، این قدم به صورت خودکار آن را اجرا می‌کند.
+      # در این مرحله فقط فایل‌های اکشن را آماده می‌کنیم؛
+      # تا وقتی فایل‌های gradle پروژه (settings.gradle.kts, build.gradle.kts و ماژول‌ها) را اضافه نکنی، این Job به خطا می‌خورد (طبیعی است).
+      - name: Grant execute permission for Gradle Wrapper (if present)
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+          fi
+
+      - name: Build Merchant & Consumer APKs (Debug)
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew :merchant-app:assembleDebug :consumer-app:assembleDebug
+          else
+            echo "Gradle wrapper not found yet. Add Gradle build files next." && exit 1
+          fi
+
+      - name: Upload APK Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soma-apks
+          path: |
+            merchant-app/build/outputs/apk/debug/*.apk
+            consumer-app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
