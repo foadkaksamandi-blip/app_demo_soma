@@ -1,16 +1,16 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android") // نسخه را اینجا ننویس
+    kotlin("android") version "1.9.24"
 }
 
 android {
     namespace = "com.soma.merchant"
-    compileSdk = (findProperty("compile.sdk") as String? ?: "34").toInt()
+    compileSdk = property("compile.sdk").toString().toInt()
 
     defaultConfig {
         applicationId = "com.soma.merchant"
-        minSdk = (findProperty("min.sdk") as String? ?: "26").toInt()
-        targetSdk = (findProperty("target.sdk") as String? ?: "34").toInt()
+        minSdk = property("min.sdk").toString().toInt()
+        targetSdk = property("target.sdk").toString().toInt()
         versionCode = 1
         versionName = "1.0.0"
     }
@@ -23,38 +23,37 @@ android {
                 "proguard-rules.pro"
             )
         }
-        debug { isMinifyEnabled = false }
+        debug {
+            isMinifyEnabled = false
+        }
     }
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions { jvmTarget = "17" }
-
-    buildFeatures { compose = true }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = findProperty("compose.compiler") as String? ?: "1.5.14"
+    // اگر DataBinding لازم داری، فعال بماند؛ در غیر این صورت حذفش کن
+    buildFeatures {
+        dataBinding = true
     }
 
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    packaging {
+        resources.excludes += setOf("META-INF/*")
+    }
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:${findProperty("compose.bom") as String? ?: "2024.06.00"}")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
-
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.2")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    implementation("androidx.compose.material3:material3")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
 
+    // ZXing
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.1")
+
+    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // BouncyCastle (Crypto)
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 }
