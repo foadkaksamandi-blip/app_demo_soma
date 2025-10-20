@@ -1,84 +1,53 @@
 package com.soma.merchant.data
 
 import android.content.Context
-import com.soma.merchant.util.Jalali
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
+import shared.utils.DateUtils
 
-enum class WalletType { MAIN, CBDC, SUBSIDY, EMERGENCY }
+data class Tx(val amount: Long, val type: String, val wallet: String, val time: Long)
 
-data class TxRec(
-    val id: String,
-    val wallet: WalletType,
-    val amount: Long,
-    val type: String,     // e.g. "دریافت QR", "دریافت BLE", ...
-    val time: String
-)
+class TxStore(private val ctx: Context) {
+    private val PREF = "soma_merchant_store"
+    private val KEY_TXS = "tx_history"
+    private val KEY_BAL_PREFIX = "bal_"
 
-class TxStore(ctx: Context) {
-    private val sp = ctx.getSharedPreferences("merchant", Context.MODE_PRIVATE)
+    private val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
-    private fun keyBal(w: WalletType) = "balance_${w.name}"
-    private val KEY_TXS = "txs"
-    private val KEY_INIT = "init_balances"
-
-    /** موجودی اولیه فروشنده روی هر کیف (تومان) */
-    private val initial = mapOf(
-        WalletType.MAIN to 5_000_000L,
-        WalletType.CBDC to 0L,
-        WalletType.SUBSIDY to 0L,
-        WalletType.EMERGENCY to 0L
-    )
-
-    init { ensureInit() }
-
-    private fun ensureInit() {
-        if (!sp.getBoolean(KEY_INIT, false)) {
-            val e = sp.edit()
-            initial.forEach { (w, v) -> e.putLong(keyBal(w), v) }
-            e.putString(KEY_TXS, "[]")
-            e.putBoolean(KEY_INIT, true)
-            e.apply()
-        }
-    }
-
-    fun balance(wallet: WalletType): Long = sp.getLong(keyBal(wallet), 0L)
-
-    fun setBalance(wallet: WalletType, value: Long) {
-        sp.edit().putLong(keyBal(wallet), value).apply()
-    }
-
-    fun add(amount: Long, type: String, wallet: WalletType): TxRec {
+    fun add(amount: Long, type: String, wallet: String) {
         val arr = JSONArray(sp.getString(KEY_TXS, "[]"))
-        val rec = JSONObject()
-        val id = "m-" + UUID.randomUUID().toString().take(8)
-        val t = TxRec(id, wallet, amount, type, Jalali.now())
-        rec.put("id", t.id)
-        rec.put("wallet", t.wallet.name)
-        rec.put("amount", t.amount)
-        rec.put("type", t.type)
-        rec.put("time", t.time)
-        arr.put(rec)
+        val obj = JSONObject()
+        val ts = System.currentTimeMillis()
+        obj.put("amount", amount)
+        obj.put("type", type)
+        obj.put("wallet", wallet)
+        obj.put("time", ts)
+        arr.put(obj)
         sp.edit().putString(KEY_TXS, arr.toString()).apply()
-        return t
     }
 
-    fun list(): List<TxRec> {
-        val arr = JSONArray(sp.getString(KEY_TXS, "[]"))
-        val out = mutableListOf<TxRec>()
+    fun list(): List<Tx> {
+        val raw = sp.getString(KEY_TXS, "[]") ?: "[]"
+        val arr = JSONArray(raw)
+        val res = mutableListOf<Tx>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
-            out.add(
-                TxRec(
-                    id = o.getString("id"),
-                    wallet = WalletType.valueOf(o.getString("wallet")),
-                    amount = o.getLong("amount"),
-                    type = o.getString("type"),
-                    time = o.getString("time")
-                )
-            )
+            res.add(Tx(o.getLong("amount"), o.getString("type"), o.getString("wallet"), o.getLong("time")))
         }
-        return out
+        return res
+    }
+
+    fun balance(wallet: String): Long {
+        return sp.getLong(KEY_BAL_PREFIX + wallet, when (wallet) {
+            "اصلی" -> 5_000_000L
+            "رمزارز ملی" -> 0L
+            "یارانه ملی" -> 0L
+            "اعتبار اضطراری ملی" -> 0L
+            else -> 0L
+        })
+    }
+
+    fun setBalance(wallet: String, v: Long) {
+        sp.edit().putLong(KEY_BAL_PREFIX + wallet, v).apply()
     }
 }
