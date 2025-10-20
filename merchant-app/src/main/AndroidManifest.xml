@@ -1,30 +1,17 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.soma.merchant">
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+<uses-permission android:name="android.permission.BLUETOOTH" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<!-- Android 12+ permissions -->
+<uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <application
-        android:allowBackup="true"
-        android:label="@string/app_name"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@style/SomaMerchantTheme">
+<application
+    ...>
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <!-- اگر سرویس BLE داری اینجا تعریف کن -->
-        <!--
-        <service
-            android:name=".ble.BLEPeripheralService"
-            android:enabled="true"
-            android:exported="false" />
-        -->
-
-    </application>
-</manifest>
+    <service
+        android:name=".ble.BlePeripheralService"
+        android:enabled="true"
+        android:exported="false"
+        android:foregroundServiceType="connectedDevice|dataSync"/>
+</application>
