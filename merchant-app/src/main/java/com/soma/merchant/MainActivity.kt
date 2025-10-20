@@ -14,28 +14,31 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.qrcode.QRCodeWriter
 import com.soma.merchant.ble.BlePeripheralService
+import com.soma.merchant.data.TxStore
 import shared.utils.DateUtils
 
 class MainActivity : AppCompatActivity() {
 
     // رنگ‌ها
-    private val GreenBg = Color.parseColor("#059669")   // پس‌زمینه‌ی سبز سوما
-    private val BtnPurple = Color.parseColor("#7C3AED") // بنفش شیک
-    private val BtnAmber  = Color.parseColor("#F59E0B") // کهربایی فانتزی
-    private val BtnBlue   = Color.parseColor("#2563EB") // آبی اقیانوسی
-    private val BtnPink   = Color.parseColor("#EC4899") // صورتی نئون
+    private val GreenBg = Color.parseColor("#059669")
+    private val BtnPurple = Color.parseColor("#7C3AED")
+    private val BtnAmber  = Color.parseColor("#F59E0B")
+    private val BtnBlue   = Color.parseColor("#2563EB")
+    private val BtnPink   = Color.parseColor("#EC4899")
     private val WhiteText = Color.WHITE
     private val MutedWhite = Color.argb(160, 255, 255, 255)
 
-    private var balance = 5_000_000
+    // Store
+    private lateinit var store: TxStore
 
+    // UI
     private lateinit var txtTitle1: TextView
     private lateinit var txtTitle2: TextView
     private lateinit var txtNow: TextView
@@ -46,7 +49,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnScanProof: Button
     private lateinit var btnHistory: Button
     private lateinit var imgQr: ImageView
-
     private lateinit var btnWalletMain: Button
     private lateinit var btnWalletCBDC: Button
     private lateinit var btnWalletSubsidy: Button
@@ -56,19 +58,21 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* no-op */ }
 
-    // Handler برای آپدیت زمان زنده
+    // کیف فعال
+    private var activeWallet: String = "اصلی"
+
+    // زمان زنده
     private val handler = Handler(Looper.getMainLooper())
     private val timeRunnable = object : Runnable {
         override fun run() {
-            try {
-                txtNow.text = "تاریخ و ساعت: " + DateUtils.nowJalaliDateTime()
-            } catch (_: Exception) { txtNow.text = "" }
+            try { txtNow.text = "تاریخ و ساعت: " + DateUtils.nowJalaliDateTime() } catch (_: Exception) {}
             handler.postDelayed(this, 1000)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        store = TxStore(this)
 
         val root = ScrollView(this).apply { setBackgroundColor(GreenBg) }
         val wrap = LinearLayout(this).apply {
@@ -78,85 +82,56 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(wrap)
 
-        txtTitle1 = TextView(this).apply {
-            text = "آپ آفلاین سوما 🏪"
-            textSize = 22f
-            setTextColor(WhiteText)
-        }
-        txtTitle2 = TextView(this).apply {
-            text = "اپ فروشنده"
-            textSize = 16f
-            setTextColor(MutedWhite)
-        }
-        txtNow = TextView(this).apply {
-            text = "تاریخ و ساعت: "
-            textSize = 13f
-            setTextColor(MutedWhite)
-        }
+        txtTitle1 = TextView(this).apply { text = "آپ آفلاین سوما 🏪"; textSize = 22f; setTextColor(WhiteText) }
+        txtTitle2 = TextView(this).apply { text = "اپ فروشنده"; textSize = 16f; setTextColor(MutedWhite) }
+        txtNow = TextView(this).apply { text = "تاریخ و ساعت: "; textSize = 13f; setTextColor(MutedWhite) }
 
         txtBalance = TextView(this).apply {
-            text = "موجودی: ${balance} تومان"
-            textSize = 18f
-            setTextColor(WhiteText)
+            text = "موجودی: ${store.balance(activeWallet)} تومان"
+            textSize = 18f; setTextColor(WhiteText)
         }
         edtAmount = EditText(this).apply {
             hint = "مبلغ خرید"
             textDirection = View.TEXT_DIRECTION_RTL
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setTextColor(WhiteText)
-            setHintTextColor(MutedWhite)
+            setTextColor(WhiteText); setHintTextColor(MutedWhite)
             backgroundTintList = ColorStateList.valueOf(WhiteText)
         }
 
-        val rowWallets = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val rowWallets = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         btnWalletMain = fancyBtn("کیف: اصلی", BtnPurple)
         btnWalletCBDC = fancyBtn("رمزارز ملی", BtnAmber)
         btnWalletSubsidy = fancyBtn("یارانه ملی", BtnBlue)
         btnWalletEmergency = fancyBtn("اعتبار اضطراری ملی", BtnPink)
-        rowWallets.addView(btnWalletMain, lpWeight())
-        rowWallets.addView(btnWalletCBDC, lpWeight())
-        rowWallets.addView(btnWalletSubsidy, lpWeight())
-        rowWallets.addView(btnWalletEmergency, lpWeight())
+        rowWallets.addView(btnWalletMain, lpWeight()); rowWallets.addView(btnWalletCBDC, lpWeight())
+        rowWallets.addView(btnWalletSubsidy, lpWeight()); rowWallets.addView(btnWalletEmergency, lpWeight())
 
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         btnStartBle = fancyBtn("دریافت با بلوتوث", BtnBlue)
         btnGenQr = fancyBtn("تولید QR پرداخت", BtnAmber)
-        row1.addView(btnStartBle, lpWeight())
-        row1.addView(btnGenQr, lpWeight())
+        row1.addView(btnStartBle, lpWeight()); row1.addView(btnGenQr, lpWeight())
 
         imgQr = ImageView(this).apply { adjustViewBounds = true }
 
-        val row2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         btnScanProof = fancyBtn("اسکن اثبات پرداخت", BtnPurple)
         btnHistory = fancyBtn("📜 تاریخچه تراکنش‌ها", BtnPink)
-        row2.addView(btnScanProof, lpWeight())
-        row2.addView(btnHistory, lpWeight())
+        row2.addView(btnScanProof, lpWeight()); row2.addView(btnHistory, lpWeight())
 
-        wrap.addView(txtTitle1)
-        wrap.addView(txtTitle2)
-        wrap.addView(txtNow)           // <-- نمایش زمان در هدر
-        wrap.addView(spacer(8))
-        wrap.addView(txtBalance)
+        wrap.addView(txtTitle1); wrap.addView(txtTitle2); wrap.addView(txtNow)
+        wrap.addView(spacer(8)); wrap.addView(txtBalance)
         wrap.addView(edtAmount, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        wrap.addView(spacer(12))
-        wrap.addView(rowWallets)
-        wrap.addView(spacer(12))
-        wrap.addView(row1)
-        wrap.addView(spacer(16))
-        wrap.addView(imgQr, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 700))
-        wrap.addView(spacer(12))
-        wrap.addView(row2)
+        wrap.addView(spacer(12)); wrap.addView(rowWallets); wrap.addView(spacer(12)); wrap.addView(row1)
+        wrap.addView(spacer(16)); wrap.addView(imgQr, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 700))
+        wrap.addView(spacer(12)); wrap.addView(row2)
 
         setContentView(root)
+
+        // کیف‌ها
+        btnWalletMain.setOnClickListener { setActiveWallet("اصلی") }
+        btnWalletCBDC.setOnClickListener { setActiveWallet("رمزارز ملی") }
+        btnWalletSubsidy.setOnClickListener { setActiveWallet("یارانه ملی") }
+        btnWalletEmergency.setOnClickListener { setActiveWallet("اعتبار اضطراری ملی") }
 
         // رویدادها
         btnStartBle.setOnClickListener { startBleReceive() }
@@ -168,17 +143,9 @@ class MainActivity : AppCompatActivity() {
             toast("QR پرداخت تولید شد")
         }
         btnScanProof.setOnClickListener { requestCameraPermissionThenScan() }
-        btnHistory.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("تاریخچه تراکنش‌ها")
-                .setMessage("در این نسخهٔ دمو، تاریخچهٔ کامل ساده‌سازی شده است.\nموجودی فعلی: $balance تومان")
-                .setPositiveButton("بستن", null)
-                .show()
-        }
+        btnHistory.setOnClickListener { showHistoryDialog() }
 
         requestBasicPermissions()
-
-        // شروع آپدیت زمان زنده
         handler.post(timeRunnable)
     }
 
@@ -187,21 +154,22 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ساخت دکمه فانتزی
+    // Helpers UI
     private fun fancyBtn(title: String, bg: Int): Button =
-        Button(this).apply {
-            text = title
-            setAllCaps(false)
-            setTextColor(WhiteText)
-            backgroundTintList = ColorStateList.valueOf(bg)
-        }
+        Button(this).apply { text = title; setAllCaps(false); setTextColor(WhiteText); backgroundTintList = ColorStateList.valueOf(bg) }
 
     private fun lpWeight(): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8,16,8,16) }
 
     private fun spacer(h: Int): View = Space(this).apply { minimumHeight = h }
 
-    // بقیه کدها (BLE/QR/handlers) بدون تغییر از قبل هستند...
+    private fun setActiveWallet(name: String) {
+        activeWallet = name
+        txtBalance.text = "موجودی: ${store.balance(activeWallet)} تومان"
+        Toast.makeText(this, "کیف فعال: $name", Toast.LENGTH_SHORT).show()
+    }
+
+    // BLE
     private fun startBleReceive() {
         val needed = mutableListOf<String>()
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
@@ -210,27 +178,22 @@ class MainActivity : AppCompatActivity() {
             needed += Manifest.permission.BLUETOOTH_SCAN
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
             needed += Manifest.permission.BLUETOOTH_CONNECT
-
         if (needed.isNotEmpty()) { permsLauncher.launch(needed.toTypedArray()); return }
 
-        val i = android.content.Intent(this, BlePeripheralService::class.java)
+        val i = Intent(this, BlePeripheralService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i) else startService(i)
         toast("در حالت دریافت بلوتوث قرار گرفت")
     }
 
+    // QR
     private fun requestCameraPermissionThenScan() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             permsLauncher.launch(arrayOf(Manifest.permission.CAMERA)); return
         }
-        IntentIntegrator(this).apply {
-            setPrompt("اسکن QR مشتری...")
-            setBeepEnabled(false)
-            setOrientationLocked(true)
-            initiateScan()
-        }
+        IntentIntegrator(this).apply { setPrompt("اسکن QR مشتری..."); setBeepEnabled(false); setOrientationLocked(true); initiateScan() }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         val res = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (res != null && res.contents != null) { handleScannedQr(res.contents); return }
         super.onActivityResult(requestCode, resultCode, data)
@@ -240,13 +203,30 @@ class MainActivity : AppCompatActivity() {
         if (text.startsWith("PAY:")) {
             val amt = text.removePrefix("PAY:").toLongOrNull() ?: 0L
             if (amt > 0) {
-                balance += amt.toInt()
-                txtBalance.text = "موجودی: ${balance} تومان"
+                val newBal = store.balance(activeWallet) + amt
+                store.setBalance(activeWallet, newBal)
+                store.add(amt, "دریافت QR", activeWallet)
+                txtBalance.text = "موجودی: ${store.balance(activeWallet)} تومان"
                 toast("پرداخت ثبت شد (+$amt)")
             } else toast("QR نامعتبر (مبلغ)")
         } else toast("QR نامعتبر")
     }
 
+    // تاریخچه
+    private fun showHistoryDialog() {
+        val items = store.list().reversed().take(50).joinToString("\n") {
+            val sign = if (it.amount >= 0) "+" else ""
+            "${DateUtils.formatJalali(it.time)} — ${it.type} (${it.wallet}): $sign${it.amount} تومان"
+        }.ifEmpty { "هیچ تراکنشی ثبت نشده است." }
+
+        AlertDialog.Builder(this)
+            .setTitle("📜 تاریخچه تراکنش‌ها")
+            .setMessage(items)
+            .setPositiveButton("بستن", null)
+            .show()
+    }
+
+    // Utils
     private fun makeQr(data: String): Bitmap {
         val size = 720
         val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
