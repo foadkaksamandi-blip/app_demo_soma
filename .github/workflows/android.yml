@@ -2,12 +2,16 @@ name: Build APKs (SOMA Offline Demo)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      JAVA_TOOL_OPTIONS: "-Xmx2g"
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g -Dfile.encoding=UTF-8'"
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout
@@ -17,29 +21,40 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
           cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses
 
       - name: Grant Gradle permissions
         run: chmod +x ./gradlew
 
+      # جلوگیری از گیر کردن گرادل؛ بدون دیمن و با لاگ مفید
       - name: Clean
-        run: ./gradlew clean
+        run: ./gradlew clean --no-daemon --info --stacktrace
 
       - name: Build Consumer
-        run: ./gradlew :consumer-app:assembleDebug --stacktrace
+        run: ./gradlew :consumer-app:assembleDebug --no-daemon --stacktrace --max-workers=2
 
       - name: Build Merchant
-        run: ./gradlew :merchant-app:assembleDebug --stacktrace
+        run: ./gradlew :merchant-app:assembleDebug --no-daemon --stacktrace --max-workers=2
 
       - name: Upload Consumer APK
         uses: actions/upload-artifact@v4
         with:
-          name: consumer-debug-apk
+          name: consumer-app-debug
           path: consumer-app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 5
 
       - name: Upload Merchant APK
         uses: actions/upload-artifact@v4
         with:
-          name: merchant-debug-apk
+          name: merchant-app-debug
           path: merchant-app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 5
