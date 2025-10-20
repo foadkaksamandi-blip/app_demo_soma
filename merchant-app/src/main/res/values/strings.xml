@@ -1,16 +1,29 @@
 <resources>
     <string name="app_name">آپ آفلاین سوما</string>
-    <string name="app_role">اپ فروشنده</string>
-    <string name="label_wallet_main">اصلی</string>
-    <string name="label_wallet_cbdc">رمزارز ملی</string>
-    <string name="label_wallet_subsidy">یارانه</string>
-    <string name="label_wallet_emergency">کالابرگ اضطراری</string>
-    <string name="balance">موجودی: %1$d تومان</string>
+    <string name="role_merchant">اپ فروشنده</string>
+
+    <!-- کیف‌ها -->
+    <string name="wallet_main">کیف: اصلی</string>
+    <string name="wallet_cbdc">رمزارز ملی</string>
+    <string name="wallet_subsidy">یارانه ملی</string>
+    <string name="wallet_emergency">اعتبار اضطراری ملی</string>
+
+    <!-- برچسب‌ها و دکمه‌ها -->
+    <string name="balance_label">موجودی: %1$d تومان</string>
     <string name="amount_label">مبلغ خرید</string>
     <string name="receive_ble">دریافت با بلوتوث</string>
     <string name="gen_qr">تولید QR پرداخت</string>
     <string name="scan_proof">اسکن اثبات پرداخت</string>
     <string name="tx_history">📜 تاریخچه تراکنش‌ها</string>
-    <string name="payment_registered">پرداخت ثبت شد — موجودی افزایش یافت</string>
-    <string name="proof_wrong_merchant">اثبات پرداخت مربوط به فروشندهٔ دیگر است</string>
+    <string name="scan_proof_prompt">اسکن QR مشتری...</string>
+
+    <!-- پیام‌ها -->
+    <string name="msg_enter_amount">مبلغ خرید را صحیح وارد کنید</string>
+    <string name="msg_qr_created">QR پرداخت تولید شد</string>
+    <string name="msg_payment_ok">پرداخت ثبت شد (+%1$d)</string>
+    <string name="msg_qr_invalid">QR نامعتبر</string>
+    <string name="msg_qr_invalid_amount">QR نامعتبر (مبلغ)</string>
+
+    <!-- تاریخ/ساعت -->
+    <string name="date_now_prefix">تاریخ و ساعت: %1$s</string>
 </resources>
