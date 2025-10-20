@@ -8,6 +8,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -19,6 +21,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.qrcode.QRCodeWriter
 import com.soma.merchant.ble.BlePeripheralService
+import shared.utils.DateUtils
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var txtTitle1: TextView
     private lateinit var txtTitle2: TextView
+    private lateinit var txtNow: TextView
     private lateinit var txtBalance: TextView
     private lateinit var edtAmount: EditText
     private lateinit var btnStartBle: Button
@@ -52,13 +56,24 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* no-op */ }
 
+    // Handler برای آپدیت زمان زنده
+    private val handler = Handler(Looper.getMainLooper())
+    private val timeRunnable = object : Runnable {
+        override fun run() {
+            try {
+                txtNow.text = "تاریخ و ساعت: " + DateUtils.nowJalaliDateTime()
+            } catch (_: Exception) { txtNow.text = "" }
+            handler.postDelayed(this, 1000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val root = ScrollView(this).apply { setBackgroundColor(GreenBg) }
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 48, 32, 48)
+            setPadding(32, 24, 32, 24)
             gravity = Gravity.CENTER_HORIZONTAL
         }
         root.addView(wrap)
@@ -73,6 +88,12 @@ class MainActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(MutedWhite)
         }
+        txtNow = TextView(this).apply {
+            text = "تاریخ و ساعت: "
+            textSize = 13f
+            setTextColor(MutedWhite)
+        }
+
         txtBalance = TextView(this).apply {
             text = "موجودی: ${balance} تومان"
             textSize = 18f
@@ -87,7 +108,6 @@ class MainActivity : AppCompatActivity() {
             backgroundTintList = ColorStateList.valueOf(WhiteText)
         }
 
-        // دکمه‌های کیف‌ها
         val rowWallets = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -101,7 +121,6 @@ class MainActivity : AppCompatActivity() {
         rowWallets.addView(btnWalletSubsidy, lpWeight())
         rowWallets.addView(btnWalletEmergency, lpWeight())
 
-        // دکمه‌های عملکرد
         val row1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -124,6 +143,7 @@ class MainActivity : AppCompatActivity() {
 
         wrap.addView(txtTitle1)
         wrap.addView(txtTitle2)
+        wrap.addView(txtNow)           // <-- نمایش زمان در هدر
         wrap.addView(spacer(8))
         wrap.addView(txtBalance)
         wrap.addView(edtAmount, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -157,6 +177,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         requestBasicPermissions()
+
+        // شروع آپدیت زمان زنده
+        handler.post(timeRunnable)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(timeRunnable)
+        super.onDestroy()
     }
 
     // ساخت دکمه فانتزی
@@ -173,7 +201,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun spacer(h: Int): View = Space(this).apply { minimumHeight = h }
 
-    // ---------- BLE ----------
+    // بقیه کدها (BLE/QR/handlers) بدون تغییر از قبل هستند...
     private fun startBleReceive() {
         val needed = mutableListOf<String>()
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
@@ -185,12 +213,11 @@ class MainActivity : AppCompatActivity() {
 
         if (needed.isNotEmpty()) { permsLauncher.launch(needed.toTypedArray()); return }
 
-        val i = Intent(this, BlePeripheralService::class.java)
+        val i = android.content.Intent(this, BlePeripheralService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i) else startService(i)
         toast("در حالت دریافت بلوتوث قرار گرفت")
     }
 
-    // ---------- QR ----------
     private fun requestCameraPermissionThenScan() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             permsLauncher.launch(arrayOf(Manifest.permission.CAMERA)); return
@@ -203,7 +230,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         val res = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (res != null && res.contents != null) { handleScannedQr(res.contents); return }
         super.onActivityResult(requestCode, resultCode, data)
@@ -220,7 +247,6 @@ class MainActivity : AppCompatActivity() {
         } else toast("QR نامعتبر")
     }
 
-    // ---------- Utils ----------
     private fun makeQr(data: String): Bitmap {
         val size = 720
         val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
