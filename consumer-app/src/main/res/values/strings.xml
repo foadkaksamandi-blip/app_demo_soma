@@ -1,16 +1,31 @@
 <resources>
     <string name="app_name">آپ آفلاین سوما</string>
-    <string name="app_role">اپ خریدار</string>
-    <string name="label_wallet_main">اصلی</string>
-    <string name="label_wallet_cbdc">رمزارز ملی</string>
-    <string name="label_wallet_subsidy">یارانه</string>
-    <string name="label_wallet_emergency">کالابرگ اضطراری</string>
-    <string name="balance">موجودی: %1$d تومان</string>
+    <string name="role_consumer">اپ خریدار</string>
+
+    <!-- کیف‌ها -->
+    <string name="wallet_main">کیف: اصلی</string>
+    <string name="wallet_cbdc">رمزارز ملی</string>
+    <string name="wallet_subsidy">یارانه ملی</string>
+    <string name="wallet_emergency">اعتبار اضطراری ملی</string>
+
+    <!-- برچسب‌ها و دکمه‌ها -->
+    <string name="balance_label">موجودی: %1$d تومان</string>
     <string name="amount_label">مبلغ خرید</string>
     <string name="pay_ble">پرداخت با بلوتوث</string>
     <string name="pay_qr">پرداخت با کد QR</string>
     <string name="tx_history">📜 تاریخچه تراکنش‌ها</string>
-    <string name="insufficient_balance">موجودی کافی نیست</string>
-    <string name="invalid_qr">QR نامعتبر</string>
-    <string name="payment_done">پرداخت انجام شد — QR اثبات را به فروشنده نشان دهید</string>
+    <string name="scan_invoice_prompt">اسکن QR فروشنده…</string>
+    <string name="proof_show_to_merchant">پرداخت انجام شد — QR اثبات را به فروشنده نشان دهید</string>
+
+    <!-- پیام‌ها -->
+    <string name="msg_invalid_amount">مبلغ خرید را صحیح وارد کنید</string>
+    <string name="msg_insufficient">موجودی کافی نیست</string>
+    <string name="msg_invalid_qr">QR نامعتبر</string>
+    <string name="msg_amount_mismatch">مغایرت مبلغ فاکتور/ورودی</string>
+    <string name="msg_ble_off">بلوتوث فعال نیست</string>
+    <string name="msg_ble_no_ack">پاسخ از فروشنده دریافت نشد</string>
+    <string name="msg_ble_fail">اتصال بلوتوث برقرار نشد</string>
+
+    <!-- تاریخ/ساعت -->
+    <string name="date_now_prefix">تاریخ و ساعت: %1$s</string>
 </resources>
