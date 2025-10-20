@@ -3,7 +3,7 @@ name: Build APKs (SOMA Offline Demo)
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
   build:
@@ -18,30 +18,28 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Grant Gradle permissions
+        run: chmod +x ./gradlew
 
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses
+      - name: Clean
+        run: ./gradlew clean
 
-      - name: Install Build Tools & Platforms
-        run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      - name: Build Consumer
+        run: ./gradlew :consumer-app:assembleDebug --stacktrace
 
-      - name: Gradle Build (no wrapper)
-        uses: gradle/gradle-build-action@v3
-        with:
-          gradle-version: 8.7
-          arguments: |
-            :merchant-app:assembleDebug
-            :consumer-app:assembleDebug
+      - name: Build Merchant
+        run: ./gradlew :merchant-app:assembleDebug --stacktrace
 
-      - name: Upload APK Artifacts
+      - name: Upload Consumer APK
         uses: actions/upload-artifact@v4
         with:
-          name: soma-apks
-          path: |
-            merchant-app/build/outputs/apk/debug/*.apk
-            consumer-app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          name: consumer-debug-apk
+          path: consumer-app/build/outputs/apk/debug/*.apk
+
+      - name: Upload Merchant APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchant-debug-apk
+          path: merchant-app/build/outputs/apk/debug/*.apk
