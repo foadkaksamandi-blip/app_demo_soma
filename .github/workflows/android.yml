@@ -17,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # بیلد بدون wrapper (خود اکشن Gradle را می‌آورد)
+      # ✅ بیلد بدون gradlew (بدون نیاز به gradle-wrapper.jar)
       - name: Build Consumer (no wrapper)
         uses: gradle/gradle-build-action@v3
         with:
@@ -25,6 +25,7 @@ jobs:
           arguments: |
             :consumer-app:clean
             :consumer-app:assembleDebug
+          cache-disabled: false
 
       - name: Build Merchant (no wrapper)
         uses: gradle/gradle-build-action@v3
@@ -33,6 +34,7 @@ jobs:
           arguments: |
             :merchant-app:clean
             :merchant-app:assembleDebug
+          cache-disabled: false
 
       - name: Upload Consumer APK
         uses: actions/upload-artifact@v4
