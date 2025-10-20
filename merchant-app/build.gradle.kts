@@ -23,20 +23,13 @@ android {
                 "proguard-rules.pro"
             )
         }
-        debug {
-            isMinifyEnabled = false
-        }
+        debug { isMinifyEnabled = false }
     }
 
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-    packaging {
-        resources.excludes += setOf("META-INF/*")
-    }
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
+
+    packaging { resources.excludes += setOf("META-INF/*") }
 }
 
 dependencies {
@@ -51,12 +44,16 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // ZXing embedded (نمایش QR لازم نیست اسکن)
+    // Material Components (برای تم‌های XML: Theme.Material3.*)
+    implementation("com.google.android.material:material:1.12.0")
+
+    // ZXing embedded (نمایش QR/اسکن لازم)
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // امضا
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 }
