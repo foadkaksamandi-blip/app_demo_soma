@@ -6,32 +6,35 @@ import java.util.Locale
 import kotlin.math.floor
 
 object DateUtils {
+    // تبدیل گرگوری به جلالی (خروجی: y, m, d)
+    private fun gregorianToJalali(gy: Int, gm: Int, gd: Int): Triple<Int, Int, Int> {
+        val gdm = intArrayOf(0,31,59,90,120,151,181,212,243,273,304,334)
+        var gy2 = gy - 1600
+        var gm2 = gm
+        var gd2 = gd
+        var gDayNo = 365 * gy2 + floor((gy2 + 3)/4.0).toInt() - floor((gy2 + 99)/100.0).toInt() + floor((gy2 + 399)/400.0).toInt()
+        gDayNo += gdm[gm2-1]
+        if (gm2 > 2 && (gy2 % 4 == 0 && gy2 % 100 != 0 || gy2 % 400 == 0)) gDayNo += 1
+        gDayNo += gd2 - 1
 
-    /** تبدیل تاریخ میلادی به شمسی (y, m, d → jy, jm, jd) */
-    private fun gregorianToJalali(cy: Int, cm: Int, cd: Int): Triple<Int, Int, Int> {
-        val gDayNo: Int
-        val jDayNo: Int
-        val jy: Int
-        val jm: Int
-        val jd: Int
-        val gDaysInMonth = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
-        val gy = cy - 1600
-        val gm = cm - 1
-        val gd = cd - 1
-        gDayNo = 365 * gy + floor((gy + 3) / 4.0).toInt() - floor((gy + 99) / 100.0).toInt() + floor((gy + 399) / 400.0).toInt()
-        val gDay = gDayNo + gDaysInMonth[gm] + gd
-        jDayNo = gDay - 79
+        var jDayNo = gDayNo - 79
         val jNp = jDayNo / 12053
-        val jDayInCycle = jDayNo % 12053
-        jy = 979 + 33 * jNp + 4 * (jDayInCycle / 1461)
-        val rem = jDayInCycle % 1461
-        val jD = if (rem >= 366) rem - 1 else rem
-        jm = if (jD < 186) 1 + jD / 31 else 7 + (jD - 186) / 30
-        jd = if (jD < 186) 1 + jD % 31 else 1 + (jD - 186) % 30
+        jDayNo %= 12053
+
+        var jy = 979 + 33 * jNp + 4 * (jDayNo / 1461)
+        jDayNo %= 1461
+
+        if (jDayNo >= 366) {
+            jy += (jDayNo - 366) / 365
+            jDayNo = (jDayNo - 366) % 365
+        }
+
+        val jm = if (jDayNo < 186) (jDayNo / 31) + 1 else ((jDayNo - 186) / 30) + 7
+        val jd = if (jDayNo < 186) (jDayNo % 31) + 1 else ((jDayNo - 186) % 30) + 1
         return Triple(jy, jm, jd)
     }
 
-    /** تاریخ و ساعت فعلی به فرمت شمسی */
+    /** تاریخ/ساعت شمسی اکنون: "YYYY/MM/DD HH:mm:ss" */
     fun nowJalaliDateTime(): String {
         val c = GregorianCalendar.getInstance(Locale.US) as GregorianCalendar
         val y = c.get(Calendar.YEAR)
@@ -44,7 +47,7 @@ object DateUtils {
         return String.format(Locale.US, "%04d/%02d/%02d %02d:%02d:%02d", jy, jm, jd, h, min, s)
     }
 
-    /** تبدیل timestamp به تاریخ شمسی */
+    /** فرمت شمسی از millis ورودی */
     fun formatJalali(ms: Long): String {
         val c = GregorianCalendar.getInstance(Locale.US).apply { timeInMillis = ms }
         val y = c.get(Calendar.YEAR)
