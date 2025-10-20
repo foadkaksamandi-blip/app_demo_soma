@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    kotlin("android") version (findProperty("kotlin.version") as String? ?: "1.9.24")
+    id("org.jetbrains.kotlin.android") // نسخه را اینجا ننویس
 }
 
 android {
