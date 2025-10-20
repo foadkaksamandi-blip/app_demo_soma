@@ -9,6 +9,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -21,6 +23,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.soma.consumer.ble.BleClient
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import shared.utils.DateUtils
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -40,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     // UI
     private lateinit var txtTitle1: TextView
     private lateinit var txtTitle2: TextView
+    private lateinit var txtNow: TextView
     private lateinit var txtBalance: TextView
     private lateinit var edtAmount: EditText
     private lateinit var btnPayBle: Button
@@ -62,6 +66,17 @@ class MainActivity : AppCompatActivity() {
     // حالت کیف فعال (برای دمو فقط نمایش/برچسب؛ منطق مبلغ ثابت می‌ماند)
     private var activeWallet: String = "اصلی"
 
+    // Handler برای آپدیت زمان زنده
+    private val handler = Handler(Looper.getMainLooper())
+    private val timeRunnable = object : Runnable {
+        override fun run() {
+            try {
+                txtNow.text = "تاریخ و ساعت: " + DateUtils.nowJalaliDateTime()
+            } catch (_: Exception) { txtNow.text = "" }
+            handler.postDelayed(this, 1000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         bleClient = BleClient(this)
@@ -70,7 +85,7 @@ class MainActivity : AppCompatActivity() {
         val root = ScrollView(this).apply { setBackgroundColor(GreenBg) }
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 48, 32, 48)
+            setPadding(32, 24, 32, 24)
             gravity = Gravity.CENTER_HORIZONTAL
         }
         root.addView(wrap)
@@ -85,6 +100,13 @@ class MainActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(MutedWhite)
         }
+        // ------- همین‌جا متن تاریخ/ساعت اضافه می‌شود -------
+        txtNow = TextView(this).apply {
+            text = "تاریخ و ساعت: "
+            textSize = 13f
+            setTextColor(MutedWhite)
+        }
+
         txtBalance = TextView(this).apply {
             text = "موجودی: ${balance} تومان"
             textSize = 18f
@@ -128,6 +150,7 @@ class MainActivity : AppCompatActivity() {
 
         wrap.addView(txtTitle1)
         wrap.addView(txtTitle2)
+        wrap.addView(txtNow)                // <-- نمایش زمان در هدر
         wrap.addView(spacer(8))
         wrap.addView(txtBalance)
         wrap.addView(edtAmount, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -156,6 +179,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         requestBasicPermissions()
+
+        // شروع آپدیت زمان زنده
+        handler.post(timeRunnable)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(timeRunnable)
+        super.onDestroy()
     }
 
     // ساخت دکمه فانتزی
@@ -182,7 +213,6 @@ class MainActivity : AppCompatActivity() {
             permsLauncher.launch(arrayOf(Manifest.permission.CAMERA))
             return
         }
-        // اسکن QR فاکتور فروشنده (INVOICE:<amount>)
         IntentIntegrator(this).apply {
             setPrompt("اسکن QR فروشنده…")
             setBeepEnabled(false)
@@ -201,14 +231,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleScannedInvoice(text: String) {
-        // انتظار داریم INVOICE:<amount>
         if (!text.startsWith("INVOICE:")) { toast("QR نامعتبر"); return }
         val invoiceAmount = text.removePrefix("INVOICE:").toLongOrNull() ?: 0L
         val entered = edtAmount.text.toString().toLongOrNull() ?: 0L
         if (invoiceAmount <= 0 || invoiceAmount != entered) { toast("مغایرت مبلغ فاکتور/ورودی"); return }
         if (invoiceAmount > balance) { toast("موجودی کافی نیست"); return }
 
-        // کسر موجودی و ساخت QR اثبات پرداخت برای فروشنده
         balance -= invoiceAmount.toInt()
         txtBalance.text = "موجودی: ${balance} تومان"
 
@@ -257,7 +285,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------- Utils ----------------
     private fun makeQr(data: String): Bitmap {
         val size = 720
         val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
