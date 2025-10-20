@@ -24,8 +24,9 @@ class BleClient(private val ctx: Context) {
     private var rxChar: BluetoothGattCharacteristic? = null
     private var txChar: BluetoothGattCharacteristic? = null
 
-    private var onAck: ((String)->Unit)? = null
-
+    /**
+     * Scan nearby peripherals advertising our SERVICE_UUID and return first device found.
+     */
     suspend fun connectToMerchant(): BluetoothDevice {
         val ad = adapter ?: throw IllegalStateException("Bluetooth disabled")
         val scanner = ad.bluetoothLeScanner ?: throw IllegalStateException("No BLE scanner")
@@ -34,7 +35,7 @@ class BleClient(private val ctx: Context) {
         return suspendCancellableCoroutine { cont ->
             val cb = object: ScanCallback() {
                 override fun onScanResult(callbackType: Int, result: ScanResult) {
-                    scanner.stopScan(this)
+                    try { scanner.stopScan(this) } catch (_: Exception) {}
                     cont.resume(result.device)
                 }
                 override fun onScanFailed(errorCode: Int) {
@@ -46,6 +47,9 @@ class BleClient(private val ctx: Context) {
         }
     }
 
+    /**
+     * Connect GATT and discover RX/TX characteristics.
+     */
     suspend fun gattConnect(device: BluetoothDevice): BluetoothGatt =
         suspendCancellableCoroutine { cont ->
             val cb = object: BluetoothGattCallback() {
@@ -66,10 +70,7 @@ class BleClient(private val ctx: Context) {
                     cont.resume(gatt)
                 }
                 override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-                    if (characteristic.uuid == BleSpec.TX_CHAR_UUID) {
-                        val s = characteristic.value?.toString(Charset.forName("UTF-8")) ?: return
-                        onAck?.invoke(s)
-                    }
+                    // handled in payAndWaitAckJson via awaiting notify
                 }
             }
             @Suppress("MissingPermission")
@@ -78,9 +79,9 @@ class BleClient(private val ctx: Context) {
         }
 
     /**
-     * ارسال پرداخت و دریافت ACK امضاشده به‌صورت JSON
+     * Send payment JSON and wait for merchant ACK (notify).
      * payload: {"type":"payment","walletType":"MAIN|CBDC|SUBSIDY|EMERGENCY","amount":123,"txId":"..."}
-     * خروجی: متن JSON ACK یا null در Timeout
+     * returns: ACK JSON string or null on timeout
      */
     @Suppress("MissingPermission")
     suspend fun payAndWaitAckJson(walletType: String, amount: Long, txId: String, timeoutMs: Long = 8000): String? {
@@ -91,16 +92,26 @@ class BleClient(private val ctx: Context) {
             .put("walletType", walletType)
             .put("amount", amount)
             .put("txId", txId)
+            .put("ts", System.currentTimeMillis())
             .toString()
         return suspendCancellableCoroutine { cont ->
             val timer = Timer()
             timer.schedule(object: TimerTask(){ override fun run() {
                 if (cont.isActive) cont.resume(null)
             }}, timeoutMs)
-            onAck = { json ->
-                timer.cancel()
-                if (cont.isActive) cont.resume(json)
+            // register callback via setCharacteristicNotification already enabled in gattConnect
+            val notifyCb = object: BluetoothGattCallback() {
+                override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+                    if (characteristic.uuid == BleSpec.TX_CHAR_UUID) {
+                        val s = characteristic.value?.toString(Charset.forName("UTF-8"))
+                        if (s != null && cont.isActive) {
+                            timer.cancel()
+                            cont.resume(s)
+                        }
+                    }
+                }
             }
+            // write payload
             c.value = payload.toByteArray(Charsets.UTF_8)
             if (!g.writeCharacteristic(c)) {
                 timer.cancel()
