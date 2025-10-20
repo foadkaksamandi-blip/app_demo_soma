@@ -1,108 +1,170 @@
 package com.soma.merchant.ble
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
-import android.bluetooth.BluetoothGattServer
-import android.bluetooth.BluetoothGattServerCallback
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
+import android.bluetooth.*
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.Context
 import android.content.Intent
-import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
-import android.util.Log
-import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationCompat
 import com.soma.merchant.R
+import com.soma.merchant.util.ReplayProtector
+import org.json.JSONObject
+import java.nio.charset.Charset
 import java.util.UUID
 
 /**
- * سرور BLE ساده برای دمو: یک سرویس با یک characteristic برای “پرداخت”.
- * - شروع/توقف advertise
- * - دریافت مقدار از خریدار (write)
- * - ارسال تأیید (notify)
+ * BLE Peripheral: پذیرش مبلغ از خریدار از طریق characteristic قابل نوشتن
+ * بدون تغییر UI/QR موجود. فقط سرویس پس‌زمینه.
  */
 class BlePeripheralService : Service() {
 
     companion object {
-        // UUIDهای دمو (دلخواه ولی ثابت)
-        val SERVICE_UUID: UUID = UUID.fromString("0000a001-0000-1000-8000-00805f9b34fb")
-        val CHAR_PAYMENT_UUID: UUID = UUID.fromString("0000a002-0000-1000-8000-00805f9b34fb")
-        val DESC_CCC_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        // شناسه‌ها ثابت بماند تا کلاینت پیداکند
+        val SERVICE_UUID: UUID = UUID.fromString("5e6d1a70-9f59-4d7e-9a2b-ff7b20a90a10")
+        val CHAR_RX_WRITE_UUID: UUID = UUID.fromString("a3af3c56-2a2a-47cc-87a8-2f7d0f87b001") // دریافت مبلغ از خریدار
+        val CHAR_TX_NOTIFY_UUID: UUID = UUID.fromString("b7c2d6aa-2cf2-4b8f-9d0d-7c0f8b87b002") // ارسال رسید به خریدار
 
-        const val ACTION_INCOMING_PAYMENT = "com.soma.merchant.ble.ACTION_INCOMING_PAYMENT"
-        const val EXTRA_AMOUNT = "amount"
-        const val EXTRA_WALLET = "wallet"
+        const val CHANNEL_ID = "soma_ble_channel"
+        const val NOTIF_ID = 101
+        const val ACTION_INCOMING_PAYMENT = "com.soma.merchant.ACTION_INCOMING_PAYMENT"
+        const val EXTRA_AMOUNT = "EXTRA_AMOUNT"
+        const val EXTRA_WALLET = "EXTRA_WALLET"
     }
 
-    private val tag = "BlePeripheralService"
-
-    private lateinit var bluetoothManager: BluetoothManager
     private var gattServer: BluetoothGattServer? = null
-    private var advertiser: BluetoothLeAdvertiser? = null
-
-    private var currentCentral: android.bluetooth.BluetoothDevice? = null
-
-    // characteristic قابل‌نوشتن + notify
-    private lateinit var paymentCharacteristic: BluetoothGattCharacteristic
-
-    private val binder = LocalBinder()
-    inner class LocalBinder : Binder() {
-        fun service(): BlePeripheralService = this@BlePeripheralService
-    }
-
-    override fun onBind(intent: Intent?): IBinder = binder
+    private var txNotifyChar: BluetoothGattCharacteristic? = null
+    private var bluetoothManager: BluetoothManager? = null
+    private var bluetoothAdapter: BluetoothAdapter? = null
 
     override fun onCreate() {
         super.onCreate()
-        bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        val adapter = bluetoothManager.adapter
-        advertiser = adapter.bluetoothLeAdvertiser
+        bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothAdapter = bluetoothManager?.adapter
 
-        gattServer = bluetoothManager.openGattServer(this, gattCallback)
-        setupGattDatabase()
-
+        startForeground(NOTIF_ID, createNotification())
+        startGattServer()
         startAdvertising()
-        Log.d(tag, "BLE Peripheral created & advertising started")
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         stopAdvertising()
         gattServer?.close()
-        gattServer = null
         super.onDestroy()
     }
 
-    /** ایجاد سرویس و characteristic‌ها */
-    private fun setupGattDatabase() {
-        val service = android.bluetooth.BluetoothGattService(
-            SERVICE_UUID,
-            android.bluetooth.BluetoothGattService.SERVICE_TYPE_PRIMARY
-        )
+    // ---------- Notification ----------
+    private fun createNotification(): Notification {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(CHANNEL_ID, "SOMA BLE", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+        }
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("SOMA Merchant BLE")
+            .setContentText("در حال پذیرش پرداخت آفلاین (Bluetooth LE)")
+            .setOngoing(true)
+            .build()
+    }
 
-        paymentCharacteristic = BluetoothGattCharacteristic(
-            CHAR_PAYMENT_UUID,
-            // Write از سمت خریدار + Notify از سمت فروشنده
-            BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+    // ---------- GATT Server ----------
+    private fun startGattServer() {
+        val server = bluetoothManager?.openGattServer(this, gattServerCallback) ?: return
+        val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+
+        val rxWrite = BluetoothGattCharacteristic(
+            CHAR_RX_WRITE_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
             BluetoothGattCharacteristic.PERMISSION_WRITE
         )
 
-        val ccc = BluetoothGattDescriptor(DESC_CCC_UUID,
-            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
-        paymentCharacteristic.addDescriptor(ccc)
+        val txNotify = BluetoothGattCharacteristic(
+            CHAR_TX_NOTIFY_UUID,
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+        txNotifyChar = txNotify
 
-        service.addCharacteristic(paymentCharacteristic)
-        gattServer?.addService(service)
+        service.addCharacteristic(rxWrite)
+        service.addCharacteristic(txNotify)
+        server.addService(service)
+
+        gattServer = server
     }
 
-    /** شروع advertise */
+    private val gattServerCallback = object : BluetoothGattServerCallback() {
+        override fun onConnectionStateChange(device: BluetoothDevice?, status: Int, newState: Int) {
+            super.onConnectionStateChange(device, status, newState)
+        }
+
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            characteristic: BluetoothGattCharacteristic?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            if (characteristic?.uuid == CHAR_RX_WRITE_UUID && value != null) {
+                val json = JSONObject(String(value, Charset.forName("UTF-8")))
+                val amount = json.optLong("amount", 0L)
+                val wallet = json.optString("wallet", "اصلی")
+                val nonce  = json.optString("nonce", "")
+                val ts     = json.optLong("ts", 0L)
+
+                // ضد-تکرار ساده
+                val ok = ReplayProtector.acceptOnce(nonce)
+                // قوانین پایه
+                val valid = ok && amount > 0 && ts > 0
+
+                // پاسخ به کلاینت (رسید ساده)
+                val ack = JSONObject()
+                    .put("ok", valid)
+                    .put("msg", if (valid) "ACCEPTED" else "REJECTED")
+                    .put("ts", System.currentTimeMillis())
+                    .toString().toByteArray(Charset.forName("UTF-8"))
+
+                // نوتیفای
+                txNotifyChar?.value = ack
+                device?.let {
+                    bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)?.forEach { dev ->
+                        gattServer?.notifyCharacteristicChanged(dev, txNotifyChar, false)
+                    }
+                }
+
+                // پاسخ به درخواست write
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+
+                if (valid) {
+                    // Broadcast به Activity برای ثبت تاریخچه/موجودی
+                    val intent = Intent(ACTION_INCOMING_PAYMENT)
+                        .putExtra(EXTRA_AMOUNT, amount.toString())
+                        .putExtra(EXTRA_WALLET, wallet)
+                    sendBroadcast(intent)
+                }
+            } else {
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
+            }
+        }
+    }
+
+    // ---------- Advertising ----------
+    private var advCallback: AdvertiseCallback? = null
+
     private fun startAdvertising() {
+        val adapter = bluetoothAdapter ?: return
+        val advertiser = adapter.bluetoothLeAdvertiser ?: return
+
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
@@ -114,103 +176,13 @@ class BlePeripheralService : Service() {
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
 
-        advertiser?.startAdvertising(settings, data, advertiseCallback)
+        advCallback = object : AdvertiseCallback() { }
+        advertiser.startAdvertising(settings, data, advCallback)
     }
 
-    /** توقف advertise */
     private fun stopAdvertising() {
-        advertiser?.stopAdvertising(advertiseCallback)
-    }
-
-    private val advertiseCallback = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.d(tag, "Advertising started")
-        }
-        override fun onStartFailure(errorCode: Int) {
-            Log.e(tag, "Advertising failed: $errorCode")
-        }
-    }
-
-    /** Callback سرور GATT */
-    private val gattCallback = object : BluetoothGattServerCallback() {
-        override fun onConnectionStateChange(device: android.bluetooth.BluetoothDevice, status: Int, newState: Int) {
-            super.onConnectionStateChange(device, status, newState)
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                currentCentral = device
-                Log.d(tag, "Central connected: ${device.address}")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                currentCentral = null
-                Log.d(tag, "Central disconnected")
-            }
-        }
-
-        override fun onDescriptorWriteRequest(
-            device: android.bluetooth.BluetoothDevice?,
-            requestId: Int,
-            descriptor: BluetoothGattDescriptor?,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
-            offset: Int,
-            value: ByteArray?
-        ) {
-            // فعال/غیرفعال کردن notify
-            if (descriptor?.uuid == DESC_CCC_UUID) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
-            } else {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
-            }
-        }
-
-        override fun onCharacteristicWriteRequest(
-            device: android.bluetooth.BluetoothDevice?,
-            requestId: Int,
-            characteristic: BluetoothGattCharacteristic?,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
-            offset: Int,
-            value: ByteArray?
-        ) {
-            // پرداخت جدید از خریدار رسید
-            if (characteristic?.uuid == CHAR_PAYMENT_UUID && value != null) {
-                val payload = try { String(value) } catch (_: Exception) { "" }
-                Log.d(tag, "Incoming payment payload: $payload")
-
-                // فرمت پیشنهادی payload: amount|wallet  (مثلاً: 100000|اصلی)
-                val parts = payload.split("|")
-                val amount = parts.getOrNull(0) ?: "0"
-                val wallet = parts.getOrNull(1) ?: "اصلی"
-
-                // اعلام به UI (MainActivity) برای ثبت تراکنش و نمایش
-                Intent(ACTION_INCOMING_PAYMENT).also {
-                    it.putExtra(EXTRA_AMOUNT, amount)
-                    it.putExtra(EXTRA_WALLET, wallet)
-                    sendBroadcast(it)
-                }
-
-                // جواب موفق به سنترال
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
-
-                // ارسال notify تأیید
-                notifyPaymentAck("OK|$amount")
-            } else {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
-            }
-        }
-    }
-
-    /** ارسال notify به دستگاه خریدار */
-    private fun notifyPaymentAck(text: String) {
-        try {
-            paymentCharacteristic.value = text.toByteArray()
-            currentCentral?.let { dev ->
-                gattServer?.notifyCharacteristicChanged(
-                    dev,
-                    paymentCharacteristic,
-                    false
-                )
-            }
-        } catch (t: Throwable) {
-            Log.e(tag, "notifyPaymentAck error", t)
+        bluetoothAdapter?.bluetoothLeAdvertiser?.let { adv ->
+            advCallback?.let { adv.stopAdvertising(it) }
         }
     }
 }
