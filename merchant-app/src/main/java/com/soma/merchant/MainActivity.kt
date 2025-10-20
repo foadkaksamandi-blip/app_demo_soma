@@ -3,7 +3,8 @@ package com.soma.merchant
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.soma.merchant.databinding.ActivityMainBinding
-import shared.utils.DateUtils   // ← مسیر صحیح کتابخانهٔ تاریخ شمسی
+import shared.utils.DateUtils   // مسیر صحیح برای تاریخ شمسی
+import com.soma.merchant.R
 
 class MainActivity : AppCompatActivity() {
 
@@ -14,8 +15,10 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // نمایش تاریخ شمسی در لاگ یا روی UI
+        // نمایش تاریخ شمسی روی صفحه
         val now = DateUtils.nowJalaliDateTime()
-        println("📅 تاریخ شمسی فعلی: $now")
+        binding.root.post {
+            println("📅 تاریخ شمسی فعلی: $now")
+        }
     }
 }
