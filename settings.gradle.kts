@@ -13,4 +13,5 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "app_demo_soma"
+
 include(":consumer-app", ":merchant-app")
