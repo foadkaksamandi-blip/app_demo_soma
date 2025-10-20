@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">آپ آفلاین سوما</string>
+    <string name="app_role">اپ فروشنده</string>
+    <string name="label_wallet_main">اصلی</string>
+    <string name="label_wallet_cbdc">رمزارز ملی</string>
+    <string name="label_wallet_subsidy">یارانه</string>
+    <string name="label_wallet_emergency">کالابرگ اضطراری</string>
+    <string name="balance">موجودی: %1$d تومان</string>
+    <string name="amount_label">مبلغ خرید</string>
+    <string name="receive_ble">دریافت با بلوتوث</string>
+    <string name="gen_qr">تولید QR پرداخت</string>
+    <string name="scan_proof">اسکن اثبات پرداخت</string>
+    <string name="tx_history">📜 تاریخچه تراکنش‌ها</string>
+    <string name="payment_registered">پرداخت ثبت شد — موجودی افزایش یافت</string>
+    <string name="proof_wrong_merchant">اثبات پرداخت مربوط به فروشندهٔ دیگر است</string>
+</resources>
