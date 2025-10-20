@@ -2,21 +2,23 @@ name: Build APKs (SOMA Offline Demo)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
   build:
+    name: Build (consumer + merchant)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
 
-    env:
-      JAVA_TOOL_OPTIONS: "-Xmx2g"
-      GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx2g -Dfile.encoding=UTF-8'"
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    permissions:
+      contents: read
 
     steps:
+      # 1) گرفتن کد
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2) نصب JDK 17 (سازگار با AGP 8.x و Kotlin 1.9.x)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -24,37 +26,49 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      # 3) نصب/فعال‌سازی ابزارهای SDK اندروید + قبول لایسنس‌ها
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Accept Android Licenses
         run: yes | sdkmanager --licenses
 
+      # 4) کش گرادل (سریع‌تر شدن بیلد‌ بعدی)
+      - name: Gradle cache
+        uses: gradle/gradle-build-action@v3
+        with:
+          cache-read-only: false
+
+      # 5) دسترسی اجرایی به گرادل رپر
       - name: Grant Gradle permissions
         run: chmod +x ./gradlew
 
-      # جلوگیری از گیر کردن گرادل؛ بدون دیمن و با لاگ مفید
+      # 6) Clean
       - name: Clean
-        run: ./gradlew clean --no-daemon --info --stacktrace
+        run: ./gradlew clean
 
+      # 7) بیلد دو ماژول دمو
       - name: Build Consumer
-        run: ./gradlew :consumer-app:assembleDebug --no-daemon --stacktrace --max-workers=2
+        run: ./gradlew :consumer-app:assembleDebug
 
       - name: Build Merchant
-        run: ./gradlew :merchant-app:assembleDebug --no-daemon --stacktrace --max-workers=2
+        run: ./gradlew :merchant-app:assembleDebug
 
+      # 8) آپلود خروجی‌ها به‌عنوان آرتیفکت‌های قابل دانلود
       - name: Upload Consumer APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: consumer-app-debug
           path: consumer-app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 7
 
       - name: Upload Merchant APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: merchant-app-debug
           path: merchant-app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 7
