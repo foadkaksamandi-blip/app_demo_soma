@@ -20,8 +20,8 @@ class BlePeripheralService : Service() {
 
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
-        val RX_CHAR_UUID: UUID = UUID.fromString("0000aa01-0000-1000-8000-00805f9b34fb") // consumer writes payment
-        val TX_CHAR_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb") // merchant notifies signed ack
+        val RX_CHAR_UUID: UUID = UUID.fromString("0000aa01-0000-1000-8000-00805f9b34fb")
+        val TX_CHAR_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
         private const val NOTIF_ID = 777
         private const val NOTIF_CH = "soma_ble_peripheral"
     }
@@ -123,7 +123,8 @@ class BlePeripheralService : Service() {
 
                         val ts = System.currentTimeMillis()
                         val canonical = "${merchantId}|${wallet.name}|${amt}|${txId}|${ts}"
-                        val sig = Crypto.sign(canonical)
+                        val sig = try { Crypto.sign(canonical) } catch (_: Exception) { "" }
+
                         val ack = JSONObject()
                             .put("type", "merchant_ack_signed")
                             .put("merchantId", merchantId)
@@ -133,10 +134,10 @@ class BlePeripheralService : Service() {
                             .put("ts", ts)
                             .put("sig", sig)
 
-                        txCharacteristic?.value = ack.toString().toByteArray(Charset.forName("UTF-8"))
+                        txCharacteristic?.value = ack.toString().toByteArray(Charsets.UTF_8)
                         gattServer?.notifyCharacteristicChanged(device, txCharacteristic, false)
                     }
-                } catch (_: Exception) { /* ignore */ }
+                } catch (_: Exception) { /* ignore malformed */ }
             }
             if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
