@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.integration.android.IntentIntegrator
@@ -30,17 +31,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHistory: Button
     private lateinit var imgQr: ImageView
 
-    // ---- Permissions launcher (BLE + Camera) ----
     private val permsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // بعد از دریافت مجوزها، کار خاصی لازم نیست؛ کاربر دوباره دکمه‌ها را می‌زند.
-    }
+    ) { /* no-op */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // --------- UI برنامه‌ای (بدون XML) ----------
+        // ---------- UI برنامه‌ای ----------
         val root = ScrollView(this)
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -77,9 +75,7 @@ class MainActivity : AppCompatActivity() {
         row1.addView(btnStartBle, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8, 16, 8, 16) })
         row1.addView(btnGenQr, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8, 16, 8, 16) })
 
-        imgQr = ImageView(this).apply {
-            adjustViewBounds = true
-        }
+        imgQr = ImageView(this).apply { adjustViewBounds = true }
 
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -100,7 +96,7 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
-        // --------- رویداد دکمه‌ها ----------
+        // ---------- رویدادها ----------
         btnStartBle.setOnClickListener { startBleReceive() }
 
         btnGenQr.setOnClickListener {
@@ -109,19 +105,14 @@ class MainActivity : AppCompatActivity() {
                 toast("مبلغ خرید را صحیح وارد کنید")
                 return@setOnClickListener
             }
-            // QR فاکتور فروشنده (ساده برای دمو)
             val payload = "INVOICE:$amt"
             imgQr.setImageBitmap(makeQr(payload))
             toast("QR پرداخت تولید شد")
         }
 
-        btnScanProof.setOnClickListener {
-            // اسکن QR مشتری (در این دمو انتظار: PAY:<amount>)
-            requestCameraPermissionThenScan()
-        }
+        btnScanProof.setOnClickListener { requestCameraPermissionThenScan() }
 
         btnHistory.setOnClickListener {
-            // در این نسخه‌ی ساده، فقط موجودی فعلی را نمایش می‌دهیم
             AlertDialog.Builder(this)
                 .setTitle("تاریخچه تراکنش‌ها")
                 .setMessage("در این نسخهٔ دمو، تاریخچهٔ کامل ساده‌سازی شده است.\nموجودی فعلی: $balance تومان")
@@ -129,13 +120,11 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
 
-        // درخواست اولیهٔ مجوزها (اختیاری؛ کاربر می‌تواند هنگام فشردن دکمه‌ها هم مجوز دهد)
         requestBasicPermissions()
     }
 
     // ---------- BLE ----------
     private fun startBleReceive() {
-        // مجوزها
         val needed = mutableListOf<String>()
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED)
             needed += Manifest.permission.BLUETOOTH_ADVERTISE
@@ -160,7 +149,6 @@ class MainActivity : AppCompatActivity() {
             permsLauncher.launch(arrayOf(Manifest.permission.CAMERA))
             return
         }
-        // ZXing external scanner
         IntentIntegrator(this).apply {
             setPrompt("اسکن QR مشتری...")
             setBeepEnabled(false)
@@ -179,7 +167,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleScannedQr(text: String) {
-        // دمو: انتظار داریم PAY:<amount>
+        // دمو: انتظار PAY:<amount>
         if (text.startsWith("PAY:")) {
             val amt = text.removePrefix("PAY:").toLongOrNull() ?: 0L
             if (amt > 0) {
