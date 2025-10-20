@@ -1,252 +1,129 @@
 package com.soma.consumer
 
 import android.Manifest
-import android.app.Activity
-import android.content.Intent
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
-import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import com.google.zxing.integration.android.IntentIntegrator
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import com.soma.consumer.ble.BleClient
-import com.soma.consumer.data.TxStore
-import com.soma.consumer.data.WalletType
-import com.soma.consumer.qr.QRGen
-import com.soma.consumer.ui.SOMAConsumerTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import org.json.JSONObject
-import java.util.*
 
-class MainActivity : ComponentActivity() {
-    private lateinit var store: TxStore
-    private lateinit var ble: BleClient
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var bleClient: BleClient
+    private lateinit var txtBalance: TextView
+    private lateinit var txtAmount: EditText
+    private lateinit var btnQrPay: Button
+    private lateinit var btnBlePay: Button
+    private lateinit var imgQr: ImageView
+    private var balance = 10000000
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        store = TxStore(this)
-        ble = BleClient(this)
-        setContent { SOMAConsumerTheme { Screen() } }
-    }
+        setContentView(R.layout.activity_main)
 
-    // --- helper: Persian labels for wallets
-    private fun walletLabel(w: WalletType): String = when (w) {
-        WalletType.MAIN -> "اصلی"
-        WalletType.CBDC -> "رمزارز ملی"
-        WalletType.SUBSIDY -> "یارانه"
-        WalletType.EMERGENCY -> "کالابرگ اضطراری"
-    }
+        bleClient = BleClient(this)
+        txtBalance = findViewById(R.id.txtBalance)
+        txtAmount = findViewById(R.id.txtAmount)
+        btnQrPay = findViewById(R.id.btnQrPay)
+        btnBlePay = findViewById(R.id.btnBlePay)
+        imgQr = findViewById(R.id.imgQr)
 
-    @Composable
-    fun Screen() {
-        var activeWallet by remember { mutableStateOf(WalletType.MAIN) }
-        var amount by remember { mutableStateOf("") }
-        var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-        var showHistoryDialog by remember { mutableStateOf(false) }
-        val scope = rememberCoroutineScope()
-        val scroll = rememberScrollState()
+        txtBalance.text = "موجودی: ${balance} تومان"
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.primary)
-                .verticalScroll(scroll)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("آپ آفلاین سوما 👤", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-            Text("اپ خریدار", color = MaterialTheme.colorScheme.onPrimary)
-            Spacer(Modifier.height(8.dp))
-
-            TabRow(selectedTabIndex = activeWallet.ordinal) {
-                WalletType.values().forEachIndexed { idx, w ->
-                    Tab(selected = idx == activeWallet.ordinal, onClick = { activeWallet = w },
-                        text = { Text(walletLabel(w)) })
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
-            Text("موجودی: ${store.balance(activeWallet)} تومان", color = MaterialTheme.colorScheme.onPrimary)
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { amount = it },
-                label = { Text("مبلغ خرید") },
-                modifier = Modifier.fillMaxWidth(0.9f)
-            )
-            Spacer(Modifier.height(16.dp))
-
-            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = {
-                    // permission checks for BLE
-                    requestBlePermissionsIfNeeded {
-                        scope.launch { payByBle(activeWallet, amount.toLongOrNull() ?: 0L) }
-                    }
-                }) {
-                    Text("پرداخت با بلوتوث")
-                }
-                Button(onClick = { startQrScanMerchant() }) {
-                    Text("پرداخت با کد QR")
-                }
+        btnQrPay.setOnClickListener {
+            val amountText = txtAmount.text.toString()
+            if (amountText.isEmpty()) {
+                Toast.makeText(this, "مبلغ خرید را وارد کنید", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
 
-            Spacer(Modifier.height(20.dp))
-
-            // After a merchant QR scanned, this shows payment proof QR for merchant to scan
-            qrBitmap?.let {
-                Text("QR اثبات پرداخت (نمایش به فروشنده):", color = MaterialTheme.colorScheme.onPrimary)
-                Spacer(Modifier.height(8.dp))
-                Image(bitmap = it.asImageBitmap(), contentDescription = "QR", modifier = Modifier.size(220.dp))
+            val amount = amountText.toInt()
+            if (amount > balance) {
+                Toast.makeText(this, "موجودی کافی نیست", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
 
-            Spacer(Modifier.height(20.dp))
-
-            Button(onClick = { showHistoryDialog = true }) {
-                Text("📜 تاریخچه تراکنش‌ها")
-            }
-
-            if (showHistoryDialog) {
-                HistoryDialog(onDismiss = { showHistoryDialog = false })
-            }
+            val qrData = "PAY:${amount}"
+            val qrBitmap = generateQrBitmap(qrData)
+            imgQr.setImageBitmap(qrBitmap)
+            Toast.makeText(this, "کد QR پرداخت تولید شد", Toast.LENGTH_SHORT).show()
         }
-    }
 
-    @Composable
-    fun HistoryDialog(onDismiss: () -> Unit) {
-        val txs = store.list().sortedByDescending { it.time }
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = {
-                TextButton(onClick = onDismiss) { Text("بستن") }
-            },
-            title = { Text("تاریخچه تراکنش‌ها") },
-            text = {
-                Column {
-                    if (txs.isEmpty()) Text("تراکنشی ثبت نشده")
-                    else txs.forEach { t ->
-                        Text("${t.time} — ${t.type}: ${t.amount} تومان")
-                        Divider()
-                    }
-                }
+        btnBlePay.setOnClickListener {
+            val amountText = txtAmount.text.toString()
+            if (amountText.isEmpty()) {
+                Toast.makeText(this, "مبلغ خرید را وارد کنید", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
-        )
-    }
 
-    // ---------- QR flows ----------
-    private fun startQrScanMerchant() {
-        // scan merchant QR
-        val integrator = IntentIntegrator(this)
-        integrator.setPrompt("اسکن QR فروشنده...")
-        integrator.setBeepEnabled(false)
-        integrator.initiateScan()
-    }
+            val amount = amountText.toInt()
+            if (amount > balance) {
+                Toast.makeText(this, "موجودی کافی نیست", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
-        if (result != null && result.contents != null) {
-            handleScanResult(result.contents)
+            startBleTransaction(amount)
         }
+
+        checkBluetoothPermissions()
     }
 
-    private fun handleScanResult(contents: String) {
-        try {
-            val json = JSONObject(contents)
-            val type = json.optString("type", "merchant_qr")
-            if (type == "merchant_qr") {
-                // merchant QR scanned: create payment proof after deducting balance
-                val merchantId = json.getString("merchantId")
-                val amount = json.getLong("amount")
-                val wallet = WalletType.valueOf(json.getString("walletType"))
+    private fun startBleTransaction(amount: Int) {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val adapter = bluetoothManager.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            Toast.makeText(this, "بلوتوث فعال نیست", Toast.LENGTH_SHORT).show()
+            return
+        }
 
-                if (store.balance(wallet) >= amount) {
-                    // deduct immediately (consumer side)
-                    val bal = store.balance(wallet)
-                    store.setBalance(wallet, bal - amount)
-                    store.add(-amount, "پرداخت QR", wallet)
+        val pairedDevices: Set<BluetoothDevice>? = adapter.bondedDevices
+        if (pairedDevices.isNullOrEmpty()) {
+            Toast.makeText(this, "هیچ دستگاهی پیدا نشد", Toast.LENGTH_SHORT).show()
+            return
+        }
 
-                    // create payment proof JSON (to show to merchant)
-                    val txId = "c-" + UUID.randomUUID().toString().take(8)
-                    val proof = JSONObject()
-                        .put("type", "payment_proof")
-                        .put("merchantId", merchantId)
-                        .put("amount", amount)
-                        .put("walletType", wallet.name)
-                        .put("txId", txId)
-                        .put("ts", System.currentTimeMillis())
-                        .toString()
-                    qrBitmap = QRGen.make(proof)
-                    Toast.makeText(this, "پرداخت انجام شد — QR اثبات را به فروشنده نشان دهید", Toast.LENGTH_LONG).show()
+        val device = pairedDevices.first()
+        bleClient.connectToDevice(device) { success ->
+            runOnUiThread {
+                if (success) {
+                    balance -= amount
+                    txtBalance.text = "موجودی: ${balance} تومان"
+                    Toast.makeText(this, "پرداخت موفق با بلوتوث ✅", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this, "موجودی کافی نیست", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "اتصال بلوتوث برقرار نشد ❌", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(this, "QR نامعتبر", Toast.LENGTH_SHORT).show()
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "خطا در پردازش QR", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // ---------- BLE flow ----------
-    private fun requestBlePermissionsIfNeeded(onDone: () -> Unit) {
-        val perms = mutableListOf<String>()
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.BLUETOOTH_SCAN)
-        if (perms.isEmpty()) { onDone(); return }
-        val launcher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            val ok = results.values.all { it }
-            if (ok) onDone() else Toast.makeText(this, "مجوزهای بلوتوث نیاز است", Toast.LENGTH_SHORT).show()
+    private fun generateQrBitmap(data: String): Bitmap {
+        val size = 512
+        val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
+        for (x in 0 until size) {
+            for (y in 0 until size) {
+                bmp.setPixel(x, y, if (bits[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+            }
         }
-        launcher.launch(perms.toTypedArray())
+        return bmp
     }
 
-    private fun payByBle(wallet: WalletType, amount: Long) {
-        if (amount <= 0) { Toast.makeText(this, "مبلغ نامعتبر", Toast.LENGTH_SHORT).show(); return }
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val device = ble.connectToMerchant()
-                ble.gattConnect(device)
-                val txId = UUID.randomUUID().toString()
-                val ackJson = ble.payAndWaitAckJson(wallet.name, amount, txId)
-                runOnUiThread {
-                    if (ackJson != null) {
-                        // parse merchant ack (signed) but demo: trust it
-                        try {
-                            val ack = JSONObject(ackJson)
-                            val bal = store.balance(wallet)
-                            if (bal >= amount) {
-                                store.setBalance(wallet, bal - amount)
-                                store.add(-amount, "پرداخت BLE", wallet)
-                                Toast.makeText(this@MainActivity, "تراکنش BLE موفق ✅", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(this@MainActivity, "موجودی کافی نیست", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (_: Exception) { Toast.makeText(this@MainActivity, "ACK نامعتبر", Toast.LENGTH_SHORT).show() }
-                    } else Toast.makeText(this@MainActivity, "اتصال یا ACK دریافت نشد", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "BLE خطا: ${e.message}", Toast.LENGTH_SHORT).show() }
-            } finally { ble.close() }
-        }
+    private fun checkBluetoothPermissions() {
+        val permissions = arrayOf(
+            Manifest.permission.BLUETOOTH,
+            Manifest.permission.BLUETOOTH_ADMIN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        ActivityCompat.requestPermissions(this, permissions, 1)
     }
 }
